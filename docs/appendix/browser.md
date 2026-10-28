@@ -1,4 +1,6 @@
-# 第二步：给浏览器分流，留下能继续用的页面
+# 附录 · 给浏览器分流，留下能继续用的页面（通用做法）
+
+> 📎 **通用做法，我们家没在用**：这篇是 Chatty 最早整理的通用写法，跟我们家日用的那套不一样，也没在全新环境里从头到尾跑通过，留给想自己折腾的人参考。照我们家的做法搭，请回[首页](../../README.md)。
 
 先完成[隧道出口检查](tunnel.md#5-海外服务器验出口再验网站)。这一篇的命令都在**海外服务器**上执行。
 
@@ -16,7 +18,7 @@
 
 ```bash
 install -d -m700 "$HOME/.config/xhs-browser"
-cp examples/xhs.pac "$HOME/.config/xhs-browser/proxy.pac"
+cp examples/appendix/xhs.pac "$HOME/.config/xhs-browser/proxy.pac"
 ```
 
 目前规则只匹配 `www.xiaohongshu.com`。我们的环境里，`edith.xiaohongshu.com` 等数据接口可以直连，图片也多数不需要国内出口，所以没有把整个 `xiaohongshu.com` 和 `xhscdn.com` 一起绕回手机。

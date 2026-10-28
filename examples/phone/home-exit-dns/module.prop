@@ -1,0 +1,6 @@
+id=home-exit-dns
+name=home-exit DNS (resolv.conf)
+version=v1
+versionCode=1
+author=Claude
+description=给 /system/etc 加一个 resolv.conf，让静态 Go 程序（chisel 隧道的 SOCKS 远端解析）能解析域名。只有一个文件。

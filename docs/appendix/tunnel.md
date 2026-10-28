@@ -1,4 +1,6 @@
-# 第一步：把国内设备的网络出口借给云服务器
+# 附录 · 把国内设备的网络出口借给云服务器（通用做法）
+
+> 📎 **通用做法，我们家没在用**：这篇是 Chatty 最早整理的通用写法，跟我们家日用的那套不一样，也没在全新环境里从头到尾跑通过，留给想自己折腾的人参考。照我们家的做法搭，请回[首页](../../README.md)。
 
 这里先用两台 Linux 设备说明。海外服务器运行 **server**，国内电脑运行 **client**；国内设备主动连接服务器。安卓的一加实例见 [android.md](android.md)。
 
@@ -142,13 +144,13 @@ env -i PATH="$PATH" curl --show-error --silent --max-time 30 \
 
 ## 6. 前台通了，再做常驻
 
-海外服务器可使用 [home-exit-server.service](../examples/home-exit-server.service)，国内 Linux 电脑可使用 [home-exit-client.service](../examples/home-exit-client.service)。先编辑客户端示例中的地址与指纹，再在**对应设备**上安装相应的一个服务。
+海外服务器可使用 [home-exit-server.service](../../examples/appendix/home-exit-server.service)，国内 Linux 电脑可使用 [home-exit-client.service](../../examples/appendix/home-exit-client.service)。先编辑客户端示例中的地址与指纹，再在**对应设备**上安装相应的一个服务。
 
 先回到本教程仓库根目录。服务器示例：
 
 ```bash
 mkdir -p "$HOME/.config/systemd/user"
-cp examples/home-exit-server.service "$HOME/.config/systemd/user/"
+cp examples/appendix/home-exit-server.service "$HOME/.config/systemd/user/"
 systemctl --user daemon-reload
 systemctl --user enable --now home-exit-server.service
 journalctl --user -u home-exit-server.service -n 30 --no-pager
@@ -166,7 +168,7 @@ sudo loginctl enable-linger "$USER"
 
 我们的日用结构是 `国内设备 → HTTPS nginx → 服务器回环地址上的 chisel`。下面是给**已经有正常 HTTPS 站点和证书**的服务器使用的变体。
 
-1. 在正确的 HTTPS `server` 块中加入 [nginx-location.conf](../examples/nginx-location.conf)。
+1. 在正确的 HTTPS `server` 块中加入 [nginx-location.conf](../../examples/appendix/nginx-location.conf)。
 2. 把 chisel server 的 `--host` 改成 `127.0.0.1`，仍监听 9310。
 3. 运行 `sudo nginx -t`，通过后 `sudo systemctl reload nginx`。
 4. 客户端 URL 改成 `https://cloud.example.com/home-exit/`；认证文件和指纹保留。

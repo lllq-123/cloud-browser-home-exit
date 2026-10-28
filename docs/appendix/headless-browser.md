@@ -1,4 +1,6 @@
-# 从只有 SSH 的服务器搭起浏览器
+# 附录 · 从只有 SSH 的服务器搭起浏览器（通用做法）
+
+> 📎 **通用做法，我们家没在用**：这篇是 Chatty 最早整理的通用写法，跟我们家日用的那套不一样，也没在全新环境里从头到尾跑通过，留给想自己折腾的人参考。照我们家的做法搭，请回[首页](../../README.md)。
 
 这一章补齐云端 Chrome 的安装、无头运行、扩展、可视登录、后台常驻，以及常被叫作“无头伪装”的环境设置。示例面向 **Ubuntu 22.04 / 24.04、普通用户、Linux x86_64**；其他发行版的依赖与沙箱支持要另行确认。
 
@@ -72,12 +74,12 @@ cd cloud-browser-home-exit
 在仓库根目录执行：
 
 ```bash
-install -Dm755 examples/start-browser.sh "$HOME/.local/bin/xhs-browser"
+install -Dm755 examples/appendix/start-browser.sh "$HOME/.local/bin/xhs-browser"
 if [ ! -e "$HOME/.config/xhs-browser/browser.env" ]; then
-  install -m600 examples/xhs-browser.env.example "$HOME/.config/xhs-browser/browser.env"
+  install -m600 examples/appendix/xhs-browser.env.example "$HOME/.config/xhs-browser/browser.env"
 fi
 if [ ! -e "$HOME/.config/xhs-browser/proxy.pac" ]; then
-  install -m600 examples/xhs.pac "$HOME/.config/xhs-browser/proxy.pac"
+  install -m600 examples/appendix/xhs.pac "$HOME/.config/xhs-browser/proxy.pac"
 fi
 "$HOME/.local/bin/xhs-browser"
 ```
@@ -100,7 +102,7 @@ curl --noproxy '*' --fail --silent http://127.0.0.1:9222/json/list
 
 ```bash
 mkdir -p "$HOME/.config/systemd/user"
-cp examples/xhs-browser.service "$HOME/.config/systemd/user/"
+cp examples/appendix/xhs-browser.service "$HOME/.config/systemd/user/"
 systemctl --user daemon-reload
 systemctl --user enable --now xhs-browser.service
 journalctl --user -u xhs-browser.service -n 30 --no-pager
@@ -195,7 +197,7 @@ XHS_UA_MODE=linux-desktop
 
 ## 9. 在实际页面检查环境
 
-在自己云端页面的 DevTools Console 运行 [inspect-environment.js](../examples/inspect-environment.js)。它只读 UA、平台、语言、屏幕、窗口、DPR、时区、webdriver 和 Client Hints，不改页面。UA Client Hints 要在支持该 API 的安全上下文中检查，例如 HTTPS 页面或 localhost；普通 `data:` 页面缺少它，不等于配置有问题。
+在自己云端页面的 DevTools Console 运行 [inspect-environment.js](../../examples/appendix/inspect-environment.js)。它只读 UA、平台、语言、屏幕、窗口、DPR、时区、webdriver 和 Client Hints，不改页面。UA Client Hints 要在支持该 API 的安全上下文中检查，例如 HTTPS 页面或 localhost；普通 `data:` 页面缺少它，不等于配置有问题。
 
 重点看：实际 Linux 平台、UA 主版本与浏览器主版本是否相符；语言列表是否是有效语言代码；窗口是否适合当前屏幕；覆盖 UA 后 Client Hints 是否缺失或矛盾。再到 Network 面板检查真正发出去的 User-Agent / Accept-Language / Sec-CH-UA 请求头。
 
@@ -215,4 +217,4 @@ XHS_UA_MODE=linux-desktop
 | 调整参数后毫无变化 | 旧进程可能仍接管该 profile；修改环境文件后重启对应专用服务，再读实际值 |
 | 登录能显示，但验证码或验证仍不通过 | 由本人处理当前站点要求；无头配置和国内出口都不是账号验证的替代品 |
 
-完整脚本见 [start-browser.sh](../examples/start-browser.sh)，可用 `--print-args` 查看将使用的参数。该选项仍会准备专用目录及首次 Preferences，但不会启动浏览器。实际验证范围见 [verification.md](verification.md)。
+完整脚本见 [start-browser.sh](../../examples/appendix/start-browser.sh)，可用 `--print-args` 查看将使用的参数。该选项仍会准备专用目录及首次 Preferences，但不会启动浏览器。实际验证范围见 [verification.md](verification.md)。

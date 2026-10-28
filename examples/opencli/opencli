@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# opencli wrapper: pin node 22 (nvm) and default CDP endpoint.
+# Update NODE_BIN_DIR after `nvm install <newer>` if you migrate node versions.
+# 写死成你 nvm 里 node 22 的 bin 目录更稳
+NODE_BIN_DIR="${OPENCLI_NODE_BIN_DIR:-$(dirname "$(command -v node)")}"
+export PATH="$NODE_BIN_DIR:$PATH"
+export OPENCLI_CDP_ENDPOINT="${OPENCLI_CDP_ENDPOINT:-http://127.0.0.1:9222}"
+
+# --- opencli 自己的网络请求一律从服务器直接出门 ---------------------
+# 为什么：调用方（比如你的 AI 进程）如果带着 HTTP(S)_PROXY 环境变量，opencli 启动时会把 node 的全局 fetch 换成
+# 「有代理变量就走代理」（官方 dist/src/node-network.js），于是下载图片视频（带着站点 cookie）、小红书短链只问跳转
+# 这些请求就从那个代理出去了，和浏览器按 PAC 直连的出口对不上。所以这里统一清掉代理变量，让 opencli 和它拉起的
+# daemon、yt-dlp 都直连。opencli 不会拉起你的 AI 进程（读源码确认过），不影响它们自己的代理设置。
+unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy
+
+# --- 本地自定义命令自愈 ---------------------------------------
+# 为什么需要：upstream postinstall(scripts/fetch-adapters.js) 把 ~/.opencli/clis/ 当
+# "稀疏覆盖层"，每次 npm 升级会把"官方 adapter 有更新的站点"目录整个 rmSync 删掉，
+# 不查 eject 标记 —— 小红书 comment 之类的本地自定义命令必丢（不是可能，是必然）。
+# 这里在每次调用前做几次 stat 级检查，缺了就静默补回，免得靠人记着跑 install.sh。
+# 铁律：提示只走 stderr，绝不写 stdout —— opencli 的输出经常被管道/脚本解析。
+# 应急关闭：OPENCLI_SKIP_AUTOHEAL=1 opencli ...
+# 正本放哪：默认 ~/opencli-xiaohongshu（本仓库那个目录整个复制过去），放别处就设 OPENCLI_CUSTOM_SRC。
+_OC_SRC="${OPENCLI_CUSTOM_SRC:-$HOME/opencli-xiaohongshu}"
+_OC_DEST="$HOME/.opencli/clis"
+if [ -z "${OPENCLI_SKIP_AUTOHEAL:-}" ] && [ -d "$_OC_SRC" ]; then
+  for _oc_f in "$_OC_SRC"/*.js; do
+    [ -e "$_oc_f" ] || continue
+    if [ ! -f "$_OC_DEST/xiaohongshu/${_oc_f##*/}" ]; then
+      if OPENCLI_SKIP_AUTOHEAL=1 bash "$_OC_SRC/install.sh" --no-verify >/dev/null 2>&1; then
+        echo "ℹ️  opencli: 本地自定义命令已自动恢复（升级后被 postinstall 清掉）" >&2
+      else
+        echo "⚠️  opencli: 自定义命令缺失且自动恢复失败 → 手动跑 bash $_OC_SRC/install.sh" >&2
+      fi
+      break
+    fi
+  done
+fi
+# ------------------------------------------------------------------------------
+
+# --- 小红书常驻页排队锁 ---------------------------------------
+# 为什么：下面这几条小红书命令都在同一张「常驻页」里页内换页（省得每次经家里手机出口整页打开），
+# 两条同时跑会互相把页面换走、静默读错（实测：A 等待中 B 改了页面，A 读回的是 B 的）；
+# daemon / 扩展对读命令不排队，所以在这个所有调用方都经过的入口排队。
+# - flock 拿锁：进程崩了内核自动放锁；-o 让 opencli 及它拉起的 daemon 不继承锁，免得常驻进程永远占着。
+# - 最多等 OPENCLI_XHS_LOCK_WAIT 秒（默认 3 分钟），等不到报「小红书页忙」、按 opencli 的 TEMPFAIL(75) 退出。
+# - flock 用 setsid 放进自己的会话：调用方的 timeout 常按进程组杀（GNU timeout 就是，定时采集脚本常用它），
+#   同组的 flock 会被一起杀掉、锁提前放开，而 opencli 还在动页面（实测过）。单独会话杀不到，
+#   它会占着锁直到 opencli 真正结束，免得后来的命令和没死透的旧命令抢页面。代价：终端里 Ctrl-C 只杀掉本脚本，
+#   命令在后台跑完（最多到下面的卡死时限）。
+# - 卡死保护：opencli 自己一条浏览器命令约 60 秒超时，但超时后不取消、还会继续动页面；
+#   这里跑满 OPENCLI_XHS_MAX_RUN 秒（10 分钟）还没结束就杀掉，免得一条卡死的命令永远占着锁。
+# 测试用：OPENCLI_REAL_BIN / OPENCLI_XHS_LOCK 换掉真正执行的程序和锁文件。
+_OC_REAL="${OPENCLI_REAL_BIN:-$NODE_BIN_DIR/opencli}"
+if [ "${1:-}" = "xiaohongshu" ]; then
+  case "${2:-}" in
+    mentions|feed|search|note|comments|download|comment)
+      _oc_lock="${OPENCLI_XHS_LOCK:-$HOME/.cache/opencli-xhs-resident.lock}"
+      _oc_wait="${OPENCLI_XHS_LOCK_WAIT:-180}"
+      mkdir -p "${_oc_lock%/*}"
+      /usr/bin/setsid -w /usr/bin/flock -o -w "$_oc_wait" -E 200 "$_oc_lock" \
+        /usr/bin/timeout -k 10 "${OPENCLI_XHS_MAX_RUN:-600}" "$_OC_REAL" "$@"
+      _oc_rc=$?
+      if [ "$_oc_rc" -eq 200 ]; then
+        echo "⚠️  小红书页忙：常驻页被别的小红书命令占着，等了 ${_oc_wait} 秒还没轮到，这次没执行，稍后再试" >&2
+        exit 75
+      fi
+      exit "$_oc_rc"
+      ;;
+  esac
+fi
+# ------------------------------------------------------------------------------
+
+exec "$_OC_REAL" "$@"

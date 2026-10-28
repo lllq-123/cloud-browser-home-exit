@@ -1,0 +1,24 @@
+[Unit]
+Description=OpenCLI full Chromium with extension (headless=new, CDP on 127.0.0.1:9222)
+After=network-online.target
+Wants=network-online.target
+# 配合 Restart=always 的失败限流——5 分钟内起 5 次仍不成就停手，
+# 防 profile 锁冲突下的无限 crash-loop
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# 经 opencli-chrome-launch.sh 启动，不直接调 opencli-chrome。
+# 原因：Chromium 147 忽略 file:// PAC，直接调分流不生效（全 DIRECT）。包装脚本把 proxy.pac
+# 转成 data: URL 再喂进去（data: 实测被认）。
+ExecStart=%h/.local/bin/opencli-chrome-launch.sh
+# 用 always 不用 on-failure：headless chrome 关掉最后一个 tab 会 exit 0
+# 正常退出，on-failure 不认，服务会一直躺着
+Restart=always
+RestartSec=5
+StandardOutput=append:%h/.cache/opencli-logs/chrome.log
+StandardError=append:%h/.cache/opencli-logs/chrome.log
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,15 @@
+[Unit]
+Description=home-exit: chisel reverse SOCKS server (loopback only; the phone connects through nginx)
+After=network-online.target
+
+[Service]
+Type=simple
+# 密码在 auth.env 里（AUTH=user:pass），不进命令行
+EnvironmentFile=%h/.config/home-exit/auth.env
+ExecStart=%h/.local/bin/chisel server --host 127.0.0.1 --port 9310 --reverse --keepalive 30s
+Restart=always
+RestartSec=5
+# 只听本机、自身不出站，不需要配置代理
+
+[Install]
+WantedBy=default.target
