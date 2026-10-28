@@ -1,0 +1,15 @@
+[Unit]
+Description=Authenticated reverse tunnel for a domestic browser exit
+After=network-online.target
+
+[Service]
+Type=simple
+UMask=0077
+UnsetEnvironment=AUTH HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
+ExecStart=%h/.local/bin/chisel server --host 0.0.0.0 --port 9310 --reverse --keepalive 30s --authfile %h/.config/home-exit/users.json --keyfile %h/.config/home-exit/server.key
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

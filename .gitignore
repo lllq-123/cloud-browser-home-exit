@@ -1,0 +1,11 @@
+.DS_Store
+*.env
+*.key
+*.pem
+users.json
+*.log
+node_modules/
+browser-profile/
+profile/
+downloads/
+screenshots/

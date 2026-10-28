@@ -1,0 +1,18 @@
+# Replace the server address and fingerprint before installing this example.
+# This is for a domestic Linux device, not Android/Termux.
+[Unit]
+Description=Domestic exit client for the cloud browser
+After=network-online.target
+
+[Service]
+Type=simple
+UMask=0077
+EnvironmentFile=%h/.config/home-exit/client.env
+UnsetEnvironment=HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
+ExecStart=%h/.local/bin/chisel client --fingerprint REPLACE_WITH_SERVER_FINGERPRINT --keepalive 25s http://cloud.example.com:9310 R:127.0.0.1:1080:socks
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
