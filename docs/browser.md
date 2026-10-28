@@ -6,7 +6,7 @@
 
 本教程接着已有的 Chrome / Chromium 环境配置。通过远程桌面看到的窗口，或 agent 连接的浏览器，都必须运行在这台海外服务器上。
 
-如果现在只有 SSH 终端，还没有可操作的浏览器，先准备一个能由本人完成登录的远程浏览器环境。可以使用自己的远程桌面，或按 [OpenCLI Browser Bridge 安装说明](https://github.com/jackwener/OpenCLI/blob/v2.0.2/docs/guide/browser-bridge.md)接入已有 Chrome。只有模型进程在服务器上，不会自动给服务器增加一个浏览器。
+如果现在只有 SSH 终端，还没有可操作的浏览器，先完成[云端浏览器搭建](headless-browser.md)：安装完整 Chromium、扩展，启动专用服务，通过 SSH 转发和 DevTools 的 live view 完成本人登录。那里也说明了无头模式、屏幕、语言和 UA 设置。只有模型进程在服务器上，不会自动给服务器增加一个浏览器。
 
 下面演示**有图形桌面时，新建一个独立浏览器资料目录**。已有自动化浏览器启动脚本的读者，把同样的 PAC 参数加到那份脚本即可；需要重新启动的只是选定的浏览器实例。
 
@@ -27,7 +27,9 @@ cp examples/xhs.pac "$HOME/.config/xhs-browser/proxy.pac"
 
 PAC 加载失败本身仍可能让 Chrome 回退直连，所以必须做下一节的浏览器验证。Chrome 的代理选择和 PAC 回退机制见 [Chromium 官方说明](https://chromium.googlesource.com/chromium/src/+/HEAD/net/docs/proxy.md)。
 
-## 3. 启动专用浏览器
+## 3. 已有图形桌面时的简短启动方式
+
+按[无头浏览器一章](headless-browser.md)启动过专用服务的读者，直接继续下一节检查路由；不用再启动第二个进程。下面留给已经有图形桌面的读者。
 
 我们曾在 Chromium 147 headless 环境遇到 `file://` PAC 没生效的情况，因此示例把配置转成 `data:` URL。这样不需要再运行一个 PAC 文件服务器。
 

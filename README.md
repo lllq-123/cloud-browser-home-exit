@@ -47,9 +47,10 @@ flowchart LR
 
 1. [接通国内出口](docs/tunnel.md)：安装 chisel，验证服务器的请求确实经国内设备出去。
 2. [用一加 / 安卓做出口](docs/android.md)：我们使用过的方式、无 Root 路线和 Android 特有的坑。电脑用户可跳过。
-3. [给浏览器分流并保留页面](docs/browser.md)：最小 PAC、登录、页内操作、恢复和排障。
-4. [让 agent 接着用这张页](docs/agent.md)：OpenCLI 接入、任务排队，以及可直接交给 agent 的说明。
-5. [核对验证范围](docs/verification.md)：哪些来自实际使用，哪些只有文档或静态验证。
+3. [从只有 SSH 搭起云端浏览器](docs/headless-browser.md)：完整 Chromium、新无头模式、扩展、远程可视登录、后台服务，以及屏幕 / 语言 / UA 检查。已有浏览器可按需阅读。
+4. [给浏览器分流并保留页面](docs/browser.md)：最小 PAC、登录、页内操作、恢复和排障。
+5. [让 agent 接着用这张页](docs/agent.md)：OpenCLI 接入、任务排队，以及可直接交给 agent 的说明。
+6. [核对验证范围](docs/verification.md)：哪些来自实际使用，哪些只有文档或静态验证。
 
 核心配置很短，完整文件在 [examples/xhs.pac](examples/xhs.pac)：
 
@@ -75,6 +76,8 @@ function FindProxyForURL(url, host) {
 - [服务器 systemd 示例](examples/home-exit-server.service)
 - [国内 Linux 客户端 systemd 示例](examples/home-exit-client.service)
 - [HTTPS / nginx 示例](examples/nginx-location.conf)
+- [浏览器启动脚本](examples/start-browser.sh)、[配置示例](examples/xhs-browser.env.example)与[浏览器后台服务](examples/xhs-browser.service)
+- [浏览器环境检查](examples/inspect-environment.js)
 - [小红书分享文案](docs/xiaohongshu-post.md)
 
 教程聚焦访问与浏览。网络连通、页面打开、账号登录是不同的检查项；更换出口也不能证明一条笔记或评论会对别人可见。

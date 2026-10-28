@@ -6,7 +6,7 @@
 
 以下命令按 **OpenCLI 2.0.2** 的官方源码核对。这个版本需要 Node.js ≥20.18.1；对应源码中的 Browser Bridge 版本为 1.0.26。安装扩展与连接方法以[该版本官方指南](https://github.com/jackwener/OpenCLI/blob/v2.0.2/docs/guide/browser-bridge.md)为准。
 
-在服务器上安装 CLI，扩展装进前一篇创建的那个浏览器资料目录：
+在服务器上安装 CLI，扩展装进前一篇创建的那个浏览器资料目录。若已完成[无头浏览器搭建](headless-browser.md)，沿用那里的安装与连接即可：
 
 ```bash
 node --version
