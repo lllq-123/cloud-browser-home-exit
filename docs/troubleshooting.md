@@ -33,9 +33,9 @@
 | `opencli xiaohongshu feed` 报「未知命令」或找不到 `@jackwener/opencli/registry` | `~/.opencli/node_modules/@jackwener/opencli` 软链没建；或者命令没复制进 `~/.opencli/clis/xiaohongshu/` |
 | 升级 OpenCLI 以后我们家的命令全没了 | 正常，会被清掉。入口脚本下次运行会自动从 `~/opencli-xiaohongshu/` 补回；手动跑 `bash ~/opencli-xiaohongshu/install.sh` 也行。但新版本能不能跑这些命令，我们没试 |
 | 退出码 75、「小红书页忙」 | 另一条小红书命令占着常驻页，排队等了 3 分钟没轮到。过几分钟再来；别并发 |
-| `comments --limit 50 --with-replies` 在大帖子上超时 | 默认 120 秒。`--timeout 300` 调大（入口脚本封顶 600），或者要少一点（20 条） |
+| `comments` 拿回来的主评论比 `--limit` 少 | 帖子本身就没那么多；或者滚不出更多、时间到了还没拿够，这时 stderr 有一行 `[xhs-comments] short: got n/limit …` 写明原因。只有图片、没有文字的评论不算在条数里。要很多条带回复时可以 `--timeout 300` 调大（入口脚本封顶 600）；我们家 2992 条评论的帖子要 50 条带回复约 23 秒 |
 | 浏览器服务连崩几次后不再自动重启 | 5 分钟内崩 5 次 systemd 就放弃。先看 `~/.cache/opencli-logs/chrome.log` 修原因（常见：PAC 文件不存在、软链接指错），再 `systemctl --user reset-failed opencli-chrome.service && systemctl --user start opencli-chrome.service` |
-| `feed --limit 60` 只回来 39 条 | 常驻页在后台标签页上往下滚不加载。一次刷新能拿到的就这么多，要更多就等下一轮 |
+| `feed --limit 60` 只回来一部分（我们家遇到过一次只有 39 条） | 原因没查明：后来换了几种情况复测都是 60 条全拿到。再刷一次就好；要是总这样，再记下来排查 |
 | `which opencli` 指到 nvm 目录 | `~/.local/bin` 没排在 PATH 前面 |
 
 ## 登录

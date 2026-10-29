@@ -1,7 +1,7 @@
 // 改自 OpenCLI 1.8.7 的 clis/xiaohongshu/publish.js（Apache-2.0），改动见 NOTICE.md
 /**
  * Xiaohongshu 图文笔记 publisher — creator center UI automation.
- * 本地覆盖基于 OpenCLI 1.8.7；仅修正话题 Enter，并增加站内表情精确选择。
+ * 本地覆盖基于 OpenCLI 1.8.7；话题改为等候选、按编号点选并读回核对（2026-10-29），并增加站内表情精确选择。
  *
  * Flow:
  *   1. Navigate to creator publish page
@@ -61,8 +61,9 @@ const TEXT_IMAGE_ENTRY_LABEL = '文字配图';
 const ADD_CARD_LABEL = '再写一张';
 const GENERATE_LABEL = '生成图片';
 const PREVIEW_NEXT_LABEL = '下一步';
-// `page.pressKey('Enter')` omits virtual key codes, so XHS receives keyCode 0
-// and does not accept the highlighted topic suggestion.
+// Native Enter with virtual key codes (`page.pressKey('Enter')` omits them and
+// XHS then sees keyCode 0). addTopics uses it only to start the topic paragraph;
+// Enter does not select a topic suggestion — topics are picked by clicking one.
 const ENTER_KEY_EVENT = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 };
 /** tiptap/ProseMirror card editor inside the 写文字 swiper. */
 const CARD_EDITOR_SELECTOR = '.tiptap.ProseMirror';
@@ -418,26 +419,6 @@ async function fillField(page, selectors, text, fieldName) {
         throw new Error(`Failed to set ${fieldName}. Expected "${text}", got "${actual}". Debug screenshot: /tmp/xhs_publish_${fieldName}_debug.png`);
     }
 }
-/**
- * Add topic hashtags by driving the editor's native inline "#" flow.
- *
- * Modern XHS creator-center editors turn a "#keyword" typed into the note body
- * into a linked topic entity only after the author picks an item from the
- * suggestion dropdown that appears while typing. There is no standalone
- * "添加话题" search input anymore, so we type directly into the body editor.
- *
- * For each topic we:
- *   1. focus the body contenteditable and move the caret to the end,
- *   2. type " #<topic>" using native CDP insertion (falls back to execCommand)
- *      so XHS fires its inline suggestion dropdown,
- *   3. wait for the dropdown, then click the suggestion whose text best matches
- *      the topic (falling back to the first suggestion, then to Enter),
- *   4. confirm a topic chip/link was produced before moving on.
- *
- * A requested topic is a write-side postcondition: if XHS does not create a
- * real topic entity, fail before publishing instead of silently emitting a note
- * with bare "#text".
- */
 async function focusBodyEnd(page, bodySelectors) {
     return unwrapBrowserResult(await page.evaluate(`
     (selectors => {
@@ -456,106 +437,6 @@ async function focusBodyEnd(page, bodySelectors) {
       return true;
     })(${JSON.stringify(bodySelectors)})
   `));
-}
-function topicSuggestionScript(topic, { click = false } = {}) {
-    // Returns the best matching suggestion's screen coordinates (center) so the
-    // caller can issue a real click.
-    return `
-    (topicName => {
-      const norm = (value) => (value || '').replace(/^#/, '').replace(/\\s+/g, '').trim();
-      const want = norm(topicName);
-      const SUGGESTION_SELECTORS = [
-        '[class*="topic-item"]',
-        '[class*="hashtag-item"]',
-        '[class*="suggest-item"]',
-        '[class*="suggestion"] li',
-        '[class*="mention"] li',
-        '[class*="dropdown"] li',
-        '[id*="topic"] li',
-        '[class*="topic"] li',
-      ];
-      const seen = new Set();
-      const items = [];
-      for (const sel of SUGGESTION_SELECTORS) {
-        for (const node of document.querySelectorAll(sel)) {
-          if (!node || seen.has(node)) continue;
-          if (node.offsetParent === null) continue;
-          const rect = node.getBoundingClientRect();
-          if (rect.width <= 0 || rect.height <= 0) continue;
-          seen.add(node);
-          items.push(node);
-        }
-      }
-      if (!items.length) return { ok: false, count: 0 };
-      let target = items.find(node => norm(node.innerText || node.textContent) === want);
-      if (!target) target = items.find(node => norm(node.innerText || node.textContent).includes(want));
-      if (!target) target = items[0];
-      const rect = target.getBoundingClientRect();
-      ${click ? "try { target.click(); } catch (e) { return { ok: false, count: items.length, message: String(e) }; }" : ''}
-      return {
-        ok: true,
-        count: items.length,
-        x: Math.round(rect.left + rect.width / 2),
-        y: Math.round(rect.top + rect.height / 2),
-        text: (target.innerText || target.textContent || '').trim().slice(0, 40),
-      };
-    })(${JSON.stringify(topic)})
-  `;
-}
-function topicEntityCountScript(topic, bodySelectors) {
-    return `
-    ((topicName, selectors) => {
-      const norm = (value) => (value || '').replace(/^#/, '').replace(/\\s+/g, '').trim();
-      const want = norm(topicName);
-      const editor = selectors
-        .map(sel => Array.from(document.querySelectorAll(sel)))
-        .flat()
-        .find(node => node && node.offsetParent !== null && node.isContentEditable);
-      if (!editor || !want) return 0;
-      const hasTopicSignal = (node) => {
-        const tag = (node.tagName || '').toLowerCase();
-        const role = (node.getAttribute && node.getAttribute('role')) || '';
-        const cls = String(node.className || '');
-        const id = String(node.id || '');
-        const href = (node.getAttribute && node.getAttribute('href')) || '';
-        const dataKeys = node.dataset ? Object.keys(node.dataset).join(' ') : '';
-        const haystack = [tag, role, cls, id, href, dataKeys].join(' ');
-        return tag === 'a'
-          || /link/i.test(role)
-          || /topic|hashtag|hash-tag|tag|mention|keyword/i.test(haystack)
-          || node.isContentEditable === false;
-      };
-      let count = 0;
-      for (const node of Array.from(editor.querySelectorAll('*'))) {
-        if (!node || node.offsetParent === null) continue;
-        if (!hasTopicSignal(node)) continue;
-        const text = norm(node.innerText || node.textContent || '');
-        if (text === want || text === '#' + want) count += 1;
-      }
-      return count;
-    })(${JSON.stringify(topic)}, ${JSON.stringify(bodySelectors)})
-  `;
-}
-function topicMarkerCountScript(topic, bodySelectors) {
-    return `
-    ((topicName, selectors) => {
-      const __opencli_xhs_topic_marker_count = true;
-      const marker = '#' + topicName + '[话题]';
-      const editor = selectors
-        .map(sel => Array.from(document.querySelectorAll(sel)))
-        .flat()
-        .find(node => node && node.offsetParent !== null && node.isContentEditable);
-      if (!editor || !marker) return 0;
-      const text = editor.innerText || editor.textContent || '';
-      let count = 0;
-      let index = text.indexOf(marker);
-      while (index !== -1) {
-        count += 1;
-        index = text.indexOf(marker, index + marker.length);
-      }
-      return count;
-    })(${JSON.stringify(topic)}, ${JSON.stringify(bodySelectors)})
-  `;
 }
 function emojiMarkerCountScript(emoji, bodySelectors) {
     return `
@@ -622,80 +503,346 @@ async function addEmojis(page, bodySelectors, emojis) {
     }
     return added;
 }
-async function typeTopicQuery(page, topic) {
-    // Type "#<topic>" so XHS recognizes it as a topic query and pops the inline
-    // suggestion dropdown. The caller separates topics with Enter beforehand so
-    // each query starts on its own line and matches cleanly.
-    const query = `#${topic}`;
-    if (typeof page.insertText === 'function') {
-        try {
-            await page.insertText(query);
-            return true;
-        }
-        catch {
-            // fall through to execCommand path
-        }
-    }
-    return unwrapBrowserResult(await page.evaluate(`
-    (text => {
-      const ok = document.execCommand('insertText', false, text);
-      const active = document.activeElement;
-      if (active) active.dispatchEvent(new Event('input', { bubbles: true }));
-      return ok;
-    })(${JSON.stringify(query)})
-  `));
+/**
+ * Add topic hashtags through the body editor's inline "#" suggestion list.
+ *
+ * Typing "#<topic>" into the tiptap body editor pops a suggestion list in the
+ * normal DOM: `.item[data-impression]`, whose `.name` reads "#名称" and whose
+ * data-impression JSON carries the topic id at `tagTarget.value.tagId`.
+ * Clicking an item replaces the typed query with a topic entity `[data-topic]`
+ * (JSON `{id, name, link}`). Enter no longer selects a suggestion. Per topic:
+ *   1. focus the editor, press a native Ctrl+End (CDP Input.dispatchKeyEvent)
+ *      and read back that the caret is collapsed, inside the editor and has no
+ *      non-whitespace text after it — never type into the middle of the body;
+ *   2. remember the existing entities and how often "#<topic>" occurs as plain
+ *      text once the entity nodes are stripped from a clone of the editor;
+ *   3. native Enter once before the first topic only; later topics continue in
+ *      the same paragraph, with a space first when the caret is not after
+ *      whitespace;
+ *   4. insertText "#<topic>" and poll until a suggestion whose name equals the
+ *      topic exactly (leading "#" and all whitespace ignored) shows up. No exact
+ *      suggestion means failing without clicking anything;
+ *   5. page.click the item by its validated tagId (a CDP mouse click when the
+ *      item hit-tests, see BasePage.click);
+ *   6. poll the editor until exactly one new entity appeared with that id and
+ *      name and the typed query no longer remains as plain text.
+ * All waiting happens on the node side (page.wait + short page.evaluate reads):
+ * in-page timers are throttled in background tabs.
+ *
+ * A requested topic is a write-side postcondition: if XHS does not create the
+ * exact topic entity, fail before publishing instead of emitting bare "#text".
+ */
+const TOPIC_CTRL_END_KEY_EVENT = { key: 'End', code: 'End', windowsVirtualKeyCode: 35, nativeVirtualKeyCode: 35, modifiers: 2 };
+const TOPIC_ID_PATTERN = /^[0-9a-f]{24}$/;
+const TOPIC_CARET_SETTLE_MS = 200;
+const TOPIC_SUGGESTION_POLL_MS = 400;
+const TOPIC_SUGGESTION_MAX_WAIT_MS = 8_000;
+const TOPIC_VERIFY_POLL_MS = 400;
+const TOPIC_VERIFY_MAX_WAIT_MS = 4_000;
+const TOPIC_DRAFT_HINT = '网站可能已经自动存了草稿，重试前先用 opencli xiaohongshu drafts 查，别直接重跑。';
+function topicFocusScript(bodySelectors) {
+    return `
+    (selectors => {
+      const __opencli_xhs_topic_focus = true;
+      const editor = selectors
+        .map(sel => Array.from(document.querySelectorAll(sel)))
+        .flat()
+        .find(node => node && node.offsetParent !== null && node.isContentEditable);
+      if (!editor) return { found: false };
+      editor.focus();
+      return { found: true };
+    })(${JSON.stringify(bodySelectors)})
+  `;
 }
-async function addTopics(page, bodySelectors, topics) {
-    const added = [];
-    for (const topic of topics) {
-        const focused = await focusBodyEnd(page, bodySelectors);
-        if (!focused) {
-            throw new CommandExecutionError(`Could not attach topic "${topic}": body editor not found`);
-        }
-        const beforeMarkerCount = Number(unwrapBrowserResult(await page.evaluate(topicMarkerCountScript(topic, bodySelectors)))) || 0;
-        // Separate this topic from the preceding text so the dropdown is clean.
+/** Read-only: caret position, raw topic entities and entity-free body text. */
+function topicEditorStateScript(bodySelectors) {
+    return `
+    (selectors => {
+      const __opencli_xhs_topic_state = true;
+      const editor = selectors
+        .map(sel => Array.from(document.querySelectorAll(sel)))
+        .flat()
+        .find(node => node && node.offsetParent !== null && node.isContentEditable);
+      if (!editor) return { found: false };
+      const entities = Array.from(editor.querySelectorAll('[data-topic]'))
+        .map(node => node.getAttribute('data-topic') || '');
+      const clone = editor.cloneNode(true);
+      clone.querySelectorAll('[data-topic]').forEach(node => node.remove());
+      const plainText = Array.from(clone.childNodes).map(node => node.textContent || '').join('\\n');
+      const selection = window.getSelection();
+      const anchor = selection && selection.rangeCount > 0 ? selection.anchorNode : null;
+      const collapsed = !!(anchor && selection.isCollapsed);
+      const inside = !!(anchor && editor.contains(anchor));
+      let tail = null;
+      let prevChar = '';
+      if (collapsed && inside) {
+        const after = document.createRange();
+        after.selectNodeContents(editor);
+        after.setStart(anchor, selection.anchorOffset);
+        tail = after.toString();
+        let block = anchor;
+        while (block !== editor && block.parentNode && block.parentNode !== editor) block = block.parentNode;
+        const before = document.createRange();
+        before.selectNodeContents(block);
+        before.setEnd(anchor, selection.anchorOffset);
+        prevChar = before.toString().slice(-1);
+      }
+      return { found: true, collapsed, inside, tail, prevChar, entities, plainText };
+    })(${JSON.stringify(bodySelectors)})
+  `;
+}
+/** Read-only: visible inline suggestion items as raw `{ name, impression }`. */
+function topicSuggestionsScript() {
+    return `
+    (() => {
+      const __opencli_xhs_topic_suggestions = true;
+      return Array.from(document.querySelectorAll('.item[data-impression]'))
+        .filter(node => {
+          const rect = node.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        })
+        .map(node => ({
+          name: ((node.querySelector('.name') || {}).textContent || '').trim(),
+          impression: node.getAttribute('data-impression') || '',
+        }));
+    })()
+  `;
+}
+function normalizeTopicName(value) {
+    return String(value ?? '').trim().replace(/^#/, '').replace(/\s+/g, '');
+}
+/** Keep items whose data-impression parses and carries a 24-hex tagId. */
+function parseTopicSuggestions(rawItems) {
+    const items = [];
+    let skipped = 0;
+    for (const raw of Array.isArray(rawItems) ? rawItems : []) {
+        let tagId;
         try {
-            await dispatchReliableEnter(page);
-        }
-        catch { /* non-fatal */ }
-        // Type the inline "#<topic>" query so XHS pops the inline suggestion
-        // dropdown. We must use `page.insertText` (CDP) rather than the legacy
-        // `execCommand` path, otherwise XHS's editor doesn't fire its keyup
-        // listener and no dropdown appears.
-        if (typeof page.insertText !== 'function') {
-            throw new CommandExecutionError(`Could not attach topic "${topic}": page.insertText is unavailable`);
-        }
-        try {
-            await page.insertText(`#${topic}`);
+            tagId = JSON.parse(String(raw?.impression ?? ''))?.tagTarget?.value?.tagId;
         }
         catch {
-            throw new CommandExecutionError(`Could not attach topic "${topic}": failed to type inline topic query`);
+            tagId = undefined;
         }
-        await page.wait({ time: 1.2 }); // Let the suggestion dropdown render.
-        // The suggestion dropdown lives inside the editor's closed shadow root,
-        // so light-DOM queries cannot enumerate its items. XHS auto-highlights
-        // the first matching suggestion as soon as the query is typed, so
-        // pressing Enter accepts it directly. `page.nativeClick` would also
-        // work but is not always wired up in the browser-bridge wrapper.
+        if (typeof tagId !== 'string' || !TOPIC_ID_PATTERN.test(tagId)) {
+            skipped += 1;
+            continue;
+        }
+        items.push({ name: String(raw?.name ?? '').trim(), tagId });
+    }
+    return { items, skipped };
+}
+/** First item whose normalized name equals the normalized topic; no fuzzy fallback. */
+function pickExactTopicSuggestion(items, topic) {
+    const want = normalizeTopicName(topic);
+    if (!want)
+        return null;
+    return (items || []).find(item => normalizeTopicName(item.name) === want) || null;
+}
+function parseTopicEntities(rawEntities) {
+    return (Array.isArray(rawEntities) ? rawEntities : []).map((raw) => {
+        try {
+            const data = JSON.parse(String(raw ?? ''));
+            return { id: String(data?.id ?? ''), name: String(data?.name ?? '') };
+        }
+        catch {
+            return { id: '', name: '' };
+        }
+    });
+}
+function countPlainTopicQuery(plainText, topic) {
+    const needle = `#${topic}`;
+    const text = String(plainText ?? '');
+    let count = 0;
+    for (let at = text.indexOf(needle); at !== -1; at = text.indexOf(needle, at + needle.length))
+        count += 1;
+    return count;
+}
+function topicSnapshot(state, topic) {
+    return {
+        entities: parseTopicEntities(state?.entities),
+        plainCount: countPlainTopicQuery(state?.plainText, topic),
+    };
+}
+function describeTopicEntity(entity) {
+    return `"${entity.name || '?'}" (${entity.id || 'no id'})`;
+}
+/**
+ * Compare editor snapshots taken before typing and after clicking. Returns null
+ * when exactly one new entity with the clicked tagId and the topic name exists
+ * and no extra plain "#<topic>" text remains; otherwise a description.
+ */
+function checkTopicAttached(before, after, topic, tagId) {
+    const pending = [...before.entities];
+    const added = [];
+    for (const entity of after.entities) {
+        const at = pending.findIndex(old => old.id === entity.id && old.name === entity.name);
+        if (at >= 0)
+            pending.splice(at, 1);
+        else
+            added.push(entity);
+    }
+    if (pending.length) {
+        return `existing topic entities changed (missing now: ${pending.map(describeTopicEntity).join(' / ')})`;
+    }
+    if (added.length === 0) {
+        return `no new topic entity appeared after clicking the suggestion (entities: ${before.entities.length} -> ${after.entities.length})`;
+    }
+    if (added.length > 1) {
+        return `expected exactly one new topic entity, got ${added.length}: ${added.map(describeTopicEntity).join(' / ')}`;
+    }
+    const [entity] = added;
+    if (entity.id !== tagId || normalizeTopicName(entity.name) !== normalizeTopicName(topic)) {
+        return `new topic entity is ${describeTopicEntity(entity)}, expected "${topic}" (${tagId})`;
+    }
+    if (after.plainCount > before.plainCount) {
+        return `typed query "#${topic}" is still in the body as plain text (${before.plainCount} -> ${after.plainCount})`;
+    }
+    return null;
+}
+// Title, body and images are already in the editor by now and XHS autosaves a
+// draft, so every topic failure carries the "check drafts first" hint.
+function topicAttachError(topic, detail, hint = TOPIC_DRAFT_HINT) {
+    return new CommandExecutionError(`Could not attach topic "${topic}": ${detail}`, hint);
+}
+async function readTopicEditorState(page, bodySelectors) {
+    const state = unwrapBrowserResult(await page.evaluate(topicEditorStateScript(bodySelectors)));
+    return state && typeof state === 'object' ? state : { found: false };
+}
+/** Focus → native Ctrl+End → read back the caret. Returns the editor state. */
+async function moveTopicCaretToEnd(page, bodySelectors, topic) {
+    if (typeof page.cdp !== 'function') {
+        throw topicAttachError(topic, 'page.cdp is unavailable; cannot press a native Ctrl+End');
+    }
+    const focused = unwrapBrowserResult(await page.evaluate(topicFocusScript(bodySelectors)));
+    if (!focused?.found) {
+        throw topicAttachError(topic, 'body editor not found');
+    }
+    try {
+        await page.cdp('Input.dispatchKeyEvent', { type: 'keyDown', ...TOPIC_CTRL_END_KEY_EVENT });
+        await page.cdp('Input.dispatchKeyEvent', { type: 'keyUp', ...TOPIC_CTRL_END_KEY_EVENT });
+    }
+    catch (err) {
+        throw topicAttachError(topic, `native Ctrl+End failed (${err && err.message || err})`);
+    }
+    await page.wait({ time: TOPIC_CARET_SETTLE_MS / 1_000 });
+    const state = await readTopicEditorState(page, bodySelectors);
+    if (!state.found) {
+        throw topicAttachError(topic, 'body editor not found');
+    }
+    const tail = typeof state.tail === 'string' ? state.tail : null;
+    if (!state.collapsed || !state.inside || tail === null || tail.trim() !== '') {
+        const after = tail && tail.trim() ? `, text after caret: "${tail.trim().slice(0, 40)}"` : '';
+        throw topicAttachError(topic, `caret is not at the end of the body editor after Ctrl+End `
+            + `(collapsed=${!!state.collapsed}, inside=${!!state.inside}${after}); refusing to type into the body`);
+    }
+    return state;
+}
+/** Poll the suggestion list until an exact match appears; never returns a near match. */
+async function waitForExactTopicSuggestion(page, topic) {
+    const attempts = Math.ceil(TOPIC_SUGGESTION_MAX_WAIT_MS / TOPIC_SUGGESTION_POLL_MS);
+    let seen = [];
+    let skipped = 0;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        const parsed = parseTopicSuggestions(unwrapBrowserResult(await page.evaluate(topicSuggestionsScript())));
+        if (parsed.items.length)
+            seen = parsed.items;
+        skipped = Math.max(skipped, parsed.skipped);
+        const hit = pickExactTopicSuggestion(parsed.items, topic);
+        if (hit)
+            return hit;
+        if (attempt < attempts - 1)
+            await page.wait({ time: TOPIC_SUGGESTION_POLL_MS / 1_000 });
+    }
+    if (!seen.length) {
+        const invalid = skipped ? ` (${skipped} item(s) without a valid tagId were skipped)` : '';
+        throw topicAttachError(topic, `no topic suggestion appeared within ${TOPIC_SUGGESTION_MAX_WAIT_MS / 1_000}s `
+            + `after typing "#${topic}"${invalid}`, TOPIC_DRAFT_HINT);
+    }
+    const names = seen.map(item => item.name).filter(Boolean);
+    const shown = names.slice(0, 10).join(' / ') + (names.length > 10 ? ' / …' : '');
+    throw topicAttachError(topic, `no exact suggestion (saw: ${shown || 'unnamed items only'})`, TOPIC_DRAFT_HINT);
+}
+async function clickTopicSuggestion(page, topic, tagId) {
+    if (typeof tagId !== 'string' || !TOPIC_ID_PATTERN.test(tagId)) {
+        throw topicAttachError(topic, `refusing to click a suggestion with invalid tagId "${tagId}"`);
+    }
+    try {
+        return unwrapBrowserResult(await page.click(`.item[data-impression*="${tagId}"]`)) || {};
+    }
+    catch (err) {
+        throw topicAttachError(topic, `failed to click suggestion ${tagId} (${err && err.message || err})`);
+    }
+}
+async function waitForTopicAttached(page, bodySelectors, topic, tagId, before, receipt) {
+    const attempts = Math.ceil(TOPIC_VERIFY_MAX_WAIT_MS / TOPIC_VERIFY_POLL_MS);
+    let problem = 'body editor not found';
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        await page.wait({ time: TOPIC_VERIFY_POLL_MS / 1_000 });
+        const state = await readTopicEditorState(page, bodySelectors);
+        if (!state.found)
+            continue;
+        problem = checkTopicAttached(before, topicSnapshot(state, topic), topic, tagId);
+        if (!problem)
+            return;
+    }
+    const via = receipt?.click_method ? `; click_method=${receipt.click_method}` : '';
+    throw topicAttachError(topic, `${problem}${via}`);
+}
+/** Steps a–h for one topic; index 0 starts the topic paragraph. */
+async function attachTopic(page, bodySelectors, topic, index) {
+    if (typeof page.insertText !== 'function') {
+        throw topicAttachError(topic, 'page.insertText is unavailable');
+    }
+    // a. focus → native Ctrl+End → read-only caret check (never type mid-body).
+    const caret = await moveTopicCaretToEnd(page, bodySelectors, topic);
+    // b. entities + plain "#<topic>" occurrences before typing.
+    const before = topicSnapshot(caret, topic);
+    // c. one new paragraph before the first topic; later topics share it.
+    if (index === 0) {
         try {
             await dispatchReliableEnter(page);
         }
         catch (err) {
-            throw new CommandExecutionError(`Could not attach topic "${topic}": failed to accept suggestion (${err && err.message || err})`);
+            throw topicAttachError(topic, `failed to start a new paragraph (${err && err.message || err})`);
         }
-        await page.wait({ time: 0.8 });
-        // Verify the topic chip actually rendered. The chip itself lives in a
-        // closed shadow root so we cannot count `<a>` elements, but XHS exposes
-        // a stable "#<topic>[话题]" marker in the body editor's innerText once
-        // the suggestion is accepted. Require the scoped marker count to
-        // increase so an existing marker elsewhere cannot satisfy the write
-        // postcondition.
-        const afterMarkerCount = Number(unwrapBrowserResult(await page.evaluate(topicMarkerCountScript(topic, bodySelectors)))) || 0;
-        if (afterMarkerCount <= beforeMarkerCount) {
-            throw new CommandExecutionError(`Could not attach topic "${topic}": no real topic entity appeared after selection`);
+    }
+    else if (caret.prevChar && !/\s/.test(caret.prevChar)) {
+        try {
+            await page.insertText(' ');
+        }
+        catch (err) {
+            throw topicAttachError(topic, `failed to type a separating space (${err && err.message || err})`);
+        }
+    }
+    // d. type the inline query that pops the suggestion list.
+    try {
+        await page.insertText(`#${topic}`);
+    }
+    catch (err) {
+        throw topicAttachError(topic, `failed to type "#${topic}" (${err && err.message || err})`);
+    }
+    // e/f. exact suggestion or fail without clicking.
+    const choice = await waitForExactTopicSuggestion(page, topic);
+    // g. click it by tagId.
+    const receipt = await clickTopicSuggestion(page, topic, choice.tagId);
+    // h. read the editor back.
+    await waitForTopicAttached(page, bodySelectors, topic, choice.tagId, before, receipt);
+}
+async function addTopics(page, bodySelectors, topics) {
+    const added = [];
+    for (let index = 0; index < topics.length; index++) {
+        const topic = topics[index];
+        try {
+            await attachTopic(page, bodySelectors, topic, index);
+        }
+        catch (err) {
+            // Bridge failures inside a step (page gone, read timeout) arrive raw;
+            // give them the same "check drafts first" hint, keeping the original text.
+            if (err instanceof CommandExecutionError)
+                throw err;
+            throw topicAttachError(topic, `browser step failed (${err && err.message || err})`);
         }
         added.push(topic);
-        await page.wait({ time: 0.4 });
     }
     return added;
 }
@@ -946,8 +1093,8 @@ async function clickGenerate(page, maxAttempts = 6) {
  *
  * tiptap/ProseMirror swallows a "\n" embedded in a single insertText call, so a
  * multi-line card would collapse onto one line. Split the text on "\n" and press
- * Enter between segments to produce real line breaks (same Enter mechanism
- * addTopics relies on). An empty segment (consecutive "\n") yields a blank line.
+ * Enter (page.pressKey) between segments to produce real line breaks. An empty
+ * segment (consecutive "\n") yields a blank line.
  *
  * Single-quoted shell args (the most natural way to pass `--card-text`) deliver a
  * literal backslash + "n", not a real LF, so we normalize those to real newlines

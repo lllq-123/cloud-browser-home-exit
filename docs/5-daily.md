@@ -20,7 +20,7 @@
 | `search` | 搜帖子 | `CI=1 opencli xiaohongshu search "生石花 冬天" --limit 10 -f json` |
 | `note` | 读一篇帖子的正文和互动数 | `CI=1 opencli xiaohongshu note "<链接>" -f json` |
 | `download` | 把帖子里的图和视频下载下来 | `CI=1 opencli xiaohongshu download "<链接>" --output /tmp/xhs_imgs -f json` |
-| `comments` | 读评论，`--with-replies` 带楼中楼，最多 50 条；大帖子慢，`--timeout` 默认 120 秒可以调大 | `CI=1 opencli xiaohongshu comments "<链接>" --limit 30 --with-replies -f json` |
+| `comments` | 读评论，`--with-replies` 带楼中楼，最多 50 条主评论（只有图片的评论不算）；拿不够时 stderr 会说一声，要很多条带回复可以把 `--timeout`（默认 120 秒）调大 | `CI=1 opencli xiaohongshu comments "<链接>" --limit 30 --with-replies -f json` |
 | `mentions` | 看「评论和@」通知，JSON 里带评论编号（`comment_id`）和帖子链接（`note_url`） | `CI=1 opencli xiaohongshu mentions --limit 20 -f json` |
 | `saved` / `liked` | 自己收藏过、赞过的帖子 | `CI=1 opencli xiaohongshu saved --limit 20 -f json` |
 | `drafts` / `draft-open` | 看草稿箱、打开一条草稿 | `CI=1 opencli xiaohongshu drafts --type image -f json` |
